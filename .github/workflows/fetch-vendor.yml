@@ -1,0 +1,73 @@
+# Downloads Roblox's current WebClientApp build into vendor/ and commits it.
+# Run it from the Actions tab ("Run workflow"); it also checks daily for a new version.
+# Keep this repository private: vendor/ holds Roblox's own engine files.
+name: Fetch vendor
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Engine version (blank = Roblox's current one)"
+        required: false
+  schedule:
+    - cron: "0 6 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download engine and content
+        run: node scripts/fetch-vendor.mjs ${{ inputs.version }}
+
+      - name: Pin flags
+        run: |
+          V=$(cat vendor/CURRENT)
+          curl -sf https://clientsettingscdn.roblox.com/v2/settings/application/WebClientApp -o "vendor/$V.flags.json"
+
+      # Split big files into 19 MB parts; the player's service worker rejoins them.
+      - name: Split large files
+        run: |
+          V=$(cat vendor/CURRENT)
+          find vendor -type f -size +19M ! -name '*.part*' | while read -r f; do
+            split -b 19m -d "$f" "$f.part"
+            rm "$f"
+          done
+          # parts.json: { "<file>": [size of part00, part01, …] } so the player
+          # knows the parts and total size without probing.
+          node -e '
+            const fs = require("fs"), path = require("path");
+            const dir = "vendor/" + process.argv[1], out = {};
+            const walk = (d) => { for (const n of fs.readdirSync(d)) { const f = path.join(d, n);
+              if (fs.statSync(f).isDirectory()) walk(f);
+              else { const m = /^(.*)\.part(\d+)$/.exec(path.relative(dir, f)); if (m) (out[m[1]] ??= [])[+m[2]] = fs.statSync(f).size; } } };
+            walk(dir);
+            fs.writeFileSync(dir + "/parts.json", JSON.stringify(out));
+            console.log(out);
+          ' "$V"
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          git add vendor
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git commit -m "vendor: $(cat vendor/CURRENT)"
+          git push
+
+      # jsDelivr caches @main for up to 12 hours; purge the files that change.
+      - name: Purge jsDelivr cache
+        run: |
+          V=$(cat vendor/CURRENT)
+          for f in CURRENT "$V.flags.json" "$V/parts.json"; do
+            curl -s "https://purge.jsdelivr.net/gh/${{ github.repository }}@main/vendor/$f" | head -c 300; echo
+          done

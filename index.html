@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebBlox engine files</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; padding: 40px 20px;
+    background: radial-gradient(circle at 18% 0%, #1b2333, #0b0d12 62%);
+    color: #e8ecf4;
+    font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 780px; margin: 0 auto; }
+  h1 { margin: 0 0 6px; font-size: clamp(26px, 4vw, 34px); letter-spacing: -.02em; }
+  .lede { margin: 0 0 26px; color: #9aa6bd; }
+  .card {
+    margin-bottom: 16px; padding: 18px 20px;
+    background: #12161f; border: 1px solid #232a38; border-radius: 14px;
+  }
+  .label {
+    margin: 0 0 10px; font-size: 12px; letter-spacing: .09em;
+    text-transform: uppercase; color: #7c88a0;
+  }
+  .tag {
+    display: inline-block; padding: 3px 9px; border-radius: 999px;
+    background: #1d2430; border: 1px solid #2d3748; color: #9ff3c7;
+    font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #base {
+    display: block; width: 100%; overflow-x: auto; white-space: nowrap;
+    padding: 11px 12px; border: 1px solid #232a38; border-radius: 10px;
+    background: #0b0e14; color: #cfe3ff; font-size: 13px;
+  }
+  button {
+    margin-top: 10px; padding: 8px 14px; border: 0; border-radius: 9px;
+    background: #2f6fed; color: #fff; font: inherit; font-size: 14px; cursor: pointer;
+  }
+  button:hover { background: #3d7cf5; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid #1f2632; text-align: left; }
+  th {
+    font-size: 12px; font-weight: 600; letter-spacing: .06em;
+    text-transform: uppercase; color: #7c88a0;
+  }
+  th:last-child, td:last-child { text-align: right; }
+  ul { margin: 0; padding-left: 18px; color: #c3cbdb; }
+  li { margin: 3px 0; }
+  a { color: #7fb0ff; }
+  .note { margin: 14px 0 0; color: #8b96ab; font-size: 13.5px; }
+  @media (max-width: 520px) { body { padding: 24px 14px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>WebBlox engine files</h1>
+  <p class="lede">Static mirror of Roblox's <code>WebClientApp</code> engine build, published for the WebBlox player.</p>
+
+  <section class="card">
+    <p class="label">Current build</p>
+    <span class="tag" id="version">reading…</span>
+  </section>
+
+  <section class="card">
+    <p class="label">Base URL</p>
+    <code id="base">…</code>
+    <button id="copy" type="button">Copy base URL</button>
+    <p class="note">Load files under this prefix, for example <code>vendor/&lt;version&gt;/WebClient.js</code>. GitHub Pages sends <code>Access-Control-Allow-Origin: *</code>, so the player can fetch them from any origin.</p>
+  </section>
+
+  <section class="card">
+    <p class="label">Split files</p>
+    <table>
+      <thead><tr><th>File</th><th>Parts</th><th>Total</th></tr></thead>
+      <tbody id="parts"><tr><td colspan="3">reading…</td></tr></tbody>
+    </table>
+    <p class="note">Files over 19 MB ship as <code>.partNN</code> pieces; the player's service worker rejoins them using <code>parts.json</code>.</p>
+  </section>
+
+  <section class="card">
+    <p class="label">Entry points</p>
+    <ul id="links"><li>reading…</li></ul>
+  </section>
+</main>
+<script>
+(function () {
+  var rootPath = location.pathname.replace(/[^/]*$/, "");
+  var vendorUrl = new URL("vendor/", location.origin + rootPath);
+  var version = null;
+
+  document.getElementById("base").textContent = vendorUrl.href;
+  document.getElementById("copy").addEventListener("click", function (e) {
+    var button = e.currentTarget;
+    var done = function () {
+      button.textContent = "Copied";
+      setTimeout(function () { button.textContent = "Copy base URL"; }, 1500);
+    };
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(vendorUrl.href).then(done, function () {});
+    } else {
+      done();
+    }
+  });
+
+  function size(bytes) {
+    if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + " MB";
+    return Math.round(bytes / 1024) + " KB";
+  }
+
+  function fail(message) {
+    document.getElementById("version").textContent = "unavailable";
+    document.getElementById("parts").innerHTML =
+      '<tr><td colspan="3">' + message + "</td></tr>";
+    document.getElementById("links").innerHTML = "<li>unavailable</li>";
+  }
+
+  fetch(vendorUrl.href + "CURRENT", { cache: "no-store" })
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+    .then(function (text) {
+      version = text.trim();
+      if (!version) throw new Error("empty CURRENT");
+      document.getElementById("version").textContent = version;
+
+      var dir = vendorUrl.href + encodeURIComponent(version) + "/";
+      var files = [
+        ["WebClient.js", "WebClient.js"],
+        ["WasmPlayer.js", "WasmPlayer.js"],
+        ["WebClient.fsindex.txt", "WebClient.fsindex.txt"],
+        ["parts.json", "parts.json"],
+        ["Engine flags", encodeURIComponent(version) + ".flags.json"]
+      ];
+      document.getElementById("links").innerHTML = files.map(function (f) {
+        return '<li><a href="' + dir + f[1] + '">' + f[0] + "</a></li>";
+      }).join("");
+
+      return fetch(dir + "parts.json", { cache: "no-store" })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function (parts) {
+          var rows = Object.keys(parts).map(function (name) {
+            var list = parts[name];
+            var total = list.reduce(function (a, b) { return a + b; }, 0);
+            return "<tr><td>" + name + "</td><td>" + list.length + "</td><td>" + size(total) + "</td></tr>";
+          });
+          document.getElementById("parts").innerHTML =
+            rows.join("") || '<tr><td colspan="3">no split files</td></tr>';
+        });
+    })
+    .catch(function (err) {
+      fail("Could not read the vendor directory (" + err.message + ").");
+    });
+})();
+</script>
+</body>
+</html>
